@@ -1,0 +1,861 @@
+#!/usr/bin/awk -f
+
+# csv2html - creates a html-page (or html table only)
+# from comma separated input, with some nice features
+#
+# (c) Wolfgang Lauffher
+#
+# Version 1.7.3
+#
+# changes from 1.7.2 -> 1.7.3:
+#   graphic "g": img-tag now with alt-tag und ending /
+# changes from 1.7.1 -> 1.7.2:
+#   tables itself without border -> confuses Browsers ...
+#   Xtra-tables without "Column"-Header
+# changes from 1.7 -> 1.7.1:
+#   Xtra-tables style vertical-align: top (correct display in IE8, where bottom is default)
+# changes since version 1.6.2:
+# new: color scheme telekom (1.6.3)
+# changes:
+# font-sizes are all in percent - to enable user based scaling in the future
+# substitution: PSO -> AM
+# remove "form" from sortable tables
+# 
+# open issue: syntax checking for ARGUMENTS
+# open issue: if there are no format and no special features - the result should be CSS-free ?!
+# open issue: What is with a "<" or ">" in the input? convert to &ge; or is HTML allowed?
+# open issue: What is with a "&" in the input? convert to &amp;?
+# idea for version 2.0: support for content enclosed with "" - the delimiter may be in content
+
+
+function _version ()
+# {{{
+# action: gives the version of this program
+# return: String (with version)
+{
+	return "csv2html 1.7.2 2010-05-14"
+} #}}}
+
+function _write_copyright ()
+# {{{
+# action: prints the copyright of this program to stdout
+{
+	print "Copyright (C) 2007-2009 Wolfgang Lauffher"
+	print ""
+	print "This program is free software; you can redistribute it and/or modify"
+	print "it under the terms of the GNU General Public License as published by"
+	print "the Free Software Foundation; either version 2 of the License, or"
+	print "(at your option) any later version."
+	print ""
+	print "This program is distributed in the hope that it will be useful,"
+	print "but WITHOUT ANY WARRANTY; without even the implied warranty of"
+	print "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the"
+	print "GNU General Public License for more details."
+	print ""
+	print "You should have received a copy of the GNU General Public License"
+	print "along with this program; if not, write to the Free Software"
+	print "Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA."
+} #}}}
+
+function _write_help () 
+# {{{
+# action: prints the usage of this program to stdout
+{
+	# not allowed because this are parameters to awk itself:
+	# -F -f -v -W -w -m and some long options like --usage --version --copyright
+	print "*********************************************************************************************"
+	print "* csv2html - creates a html-page (or table only) from csv input, with some nice features"
+	print "* "
+	print "* Usage: csv2html [-h|--Help]             # this information"
+	print "*                 [-V|--Version]          # prints the version of this program"
+	print "*                 [--Copyright]           # prints the copyright of csv2html"
+	print "*                 [-C|--copyrightfooter   # makes a footer with (C) by csv2html"
+	print "*                 [-H|--html-header]      # creates surrounding HTML-Header, Style, Body"
+	print "*                 [-S|--style-only]       # outputs only the build-in CSS-Style"
+	print "*                 [-c|--colorscheme NAME] # choose a coloring ('show' gives the names)"
+	print "*                 [-d|--delim DELIM]      # the delimiter of the csv-file (Default=\";\")"
+	print "*                 [-e|--empty-line]       # produces empty lines before headerlines"
+	print "*                 [-i|--info-titles]      # title-tags over td with info from the head"
+	print "*                 [-j|--javascript]       # enables highlighting of rows via javascript"
+	print "*                 [-n|--number-lines]     # creates an extra first column with numbering"
+	print "*                 [-r|--rawdata]          # creates anchor to show the rawdata"
+	print "*                 [-s|--sorting]          # Javascript-based sorting in browser, needs n|t"
+	print "*                 [-t|--totals COLS]      # extra row with total of COLS = i[,j].. (if \"n\")"
+	print "*                 [-u|--uniquecols COLS]  # extra row with number of unique entries in COLS"
+	print "*                 [-x|--extratables COLS] # extra tables with value frequency in COLS"
+	print "*                                         # if \"h\" after i, headerlines be counted, too"
+	print "*                 [-y|--my-copyright TXT] # creates a footer with specified copyright"
+	print "*                 [--titler TXT]          # text for the titler, if not mentioned in input"
+	print "*                 [--header HEADERTXT]    # text for the header, if not mentioned in input"
+	print "*                 [--format FORMATTXT]    # text for the format, if not mentioned in input"
+	print "*                 [--before TXT]          # text that ist printed before the table"
+	print "*                 [--behind TXT]          # text that ist printed after the table"
+	print "*                 [--warnings]            # Show warnings during processing the input"
+	print "*                 [filenames ]            # files to process; pipe and "-" are also read"
+	print "*"
+	print "*********************************************************************************************"
+	print "* description of input data"
+	print "* -------------------------"
+	print "* - semicolon (DELIM) separated text with optional rows for title, table-head and format"
+	print "* - TITLER, HEADER or FORMAT must occure as first lines, each can be omitted, also als args"
+	print "* - TITLER := TITLER;[Texttexttext]"
+	print "* - HEADER := HEADER;[headercolumn1];[headercolumn2];[headercolumn3]..."
+	print "* - FORMAT := FORMAT;[l|c|r][b|i][n|t][g][ahref=text%text|aname=text%text];..."
+	print "*          where l=left, c=center, r=right text-align; b=bold, i=italic font;"
+	print "*          n (numeric) and t (text) is needed when 'sorting' is enabled. g for graphic"
+	print "*          default: align left  and font regular. Following must be the last option:"
+	print "*          \"ahref\" marks this column to be a \"A HREF-Link\" with the given URL,"
+	print "*            where % is replaced with the data from the column"
+	print "*            e.g.: ahref=https://www.w3.org/wrap.cgi?%?view and data = \"foo\" gives"
+	print "*            <a href=\"https://www.w3.org/wrap.cgi?foo?view\">foo</a>"
+	print "*          the \"aname\" tag marks this as an anker in the current document \"A ID\""
+	print "*          ahref works only on normal rows, whereas aname works on header and normal lines"
+	print "* - BEFORE = BEHIND := text is printed before/after the table (ascii/html/pre...) (n-times)"
+	print "* - one empty line in the rest of the file indicates a following \"headerline\" (with own CSS)"
+	print "* - two empty lines indicates a \"headerline\" in one column (a colspan)"
+	print "*********************************************************************************************"
+} # }}}
+
+function _write_warning (text)
+# {{{
+# action: prints specified text as a warning to stderr
+# input : string - the text to be printed
+{
+	if (WARNINGS) print "Warning: " text > "/dev/stderr"
+} # }}}
+
+function _today (     datum)
+# {{{
+# action: gives the actual date in form YYYY-MM-DD, e.g. 2008-07-24
+# return: String (with the date)
+{
+	return strftime("%Y-%m-%d")
+} # }}}
+
+function _get_params (     i, c, p, color)
+# {{{
+# action: gets the parameters from the command line and sets the appropriate variables
+{
+	FS = ";"		# some defaults
+	NL = 0			# initialization is needed for some calculations
+	COPYTXT="AM/OPS"
+	TABLEID="c2h17"
+	TITLE=""
+	color="orange" #; ODD="#FFFaFa"; EVEN="#FFF8E8"; HIGH="#EEEEEE"; SOLID="#FFCA5E"; CAPTION="#EE9900"
+
+	for (c=1;c<=ARGC-1;c++) {
+		p = ARGV[c]
+		if      (p == "-V" || p == "--Version")         { print _version();   GOTO_END=1; exit }
+		else if (p == "-h" || p == "--Help")            { _write_help();      GOTO_END=1; exit }
+		else if (             p == "--Copyright")       { _write_copyright(); GOTO_END=1; exit }
+		else if (p == "-S" || p == "--style-only")      { _write_style();     GOTO_END=1; exit }
+		else if (p == "-C" || p == "--copyrightfooter") { COPYRIGHT = 1 }
+		else if (p == "-H" || p == "--html-header")     { HTMLHEADER = 1 }
+		else if (p == "-c" || p == "--colorscheme")     { delete ARGV[c]; color = ARGV[++c] }
+		else if (p == "-d" || p == "--delim")           { delete ARGV[c]; FS = ARGV[++c] }
+		else if (p == "-e" || p == "--empty-line")      { EMPTYLINE = 1 }
+		else if (p == "-i" || p == "--info-titles")     { INFOTITLES = 1 }
+		else if (p == "-j" || p == "--javascript")      { JS_HIGHLIGHTING = 1 }
+		else if (p == "-n" || p == "--number-lines")    { NL = 1 }
+		else if (p == "-r" || p == "--rawdata")         { SHOW_RAWDATA = 1 }
+		else if (p == "-s" || p == "--sorting")         { SORTING = 1 }
+		else if (p == "-t" || p == "--totals")          { delete ARGV[c]; TOTALS = ARGV[++c] }
+		else if (p == "-u" || p == "--uniquecols")      { delete ARGV[c]; UNIQUECOLS = ARGV[++c] }
+		else if (p == "-x" || p == "--extratables")     { delete ARGV[c]; EXTRATABLES = ARGV[++c] }
+		else if (p == "-y" || p == "--my-copyright")    { delete ARGV[c]; COPYTXT = ARGV[++c] }
+		else if (             p == "--titler")          { delete ARGV[c]; TITLE = ARGV[++c] }
+		else if (             p == "--header")          { delete ARGV[c]; _parse_header(ARGV[++c]) }
+		else if (             p == "--format")          { delete ARGV[c]; _parse_format(ARGV[++c]) }
+		else if (             p == "--behind")          { delete ARGV[c]; BEHINDTEXT[++COUNT_BEHIND]=ARGV[++c] }
+		else if (             p == "--before")          { delete ARGV[c]; BEFORETEXT[++COUNT_BEFORE]=ARGV[++c] }
+		else if (             p == "--warnings")        { WARNINGS = 1 }
+		else if (p ~ /^-./  || p == /^--/)              { _write_help();      GOTO_END=1; exit }
+		else break	# Filename(s) to process are remaining
+
+		delete ARGV[c]	# Remove this one from the list - no input file
+	}
+	
+	# Color-Scheme
+	if (color == "show") { print "One of: beige, blue, gray, green, orange (default), various, danielblue"; GOTO_END=1; exit }
+	else if (color == "beige")      { ODD="#FFF8E8"; EVEN="#EBEBDE"; HIGH="#CCCCCC"; SOLID="#BDB88E"; CAPTION="#7F7F7F" }
+	else if (color == "blue")       { ODD="#DDEEFF"; EVEN="#9FBFEF"; HIGH="#EEEEEE"; SOLID="#8899BB"; CAPTION="#306090" }
+	else if (color == "gray")       { ODD="#F8F8F8"; EVEN="#E0E0E0"; HIGH="#DDDDDD"; SOLID="#888888"; CAPTION="#666666" }
+	else if (color == "green")      { ODD="#CCEECC"; EVEN="#B5EAAA"; HIGH="#EEEEEE"; SOLID="#4CC44C"; CAPTION="#41A317" }
+	else if (color == "orange")     { ODD="#FFFaFa"; EVEN="#FFF8E8"; HIGH="#EEEEEE"; SOLID="#FFCA5E"; CAPTION="#EE9900" }
+	else if (color == "various")    { ODD="#FFFFBF"; EVEN="#FFC1BF"; HIGH="#BFCFFF"; SOLID="#809FFF"; CAPTION="#6078BF" }
+	else if (color == "danielblue") { ODD="#FFFFFF"; EVEN="#E4ECF7"; HIGH="#EEEEEE"; SOLID="#679AC9"; CAPTION="#679AC9" }
+	else if (color == "telekom")    { ODD="#FFFFFF"; EVEN="#F0F0F0"; HIGH="#CCCCCC"; SOLID="#DCDCDC"; CAPTION="#E20074" }
+	else _write_warning("specified color is unknown, using default instead")
+
+	if (TOTALS)
+		COUNT_TOTALS=split(TOTALS,COLS_TOTALS,",")
+	if (UNIQUECOLS)
+		COUNT_UNIQUECOLS=split(UNIQUECOLS,COLS_UNIQUECOLS,",")
+	if (EXTRATABLES) {
+		COUNT_EXTRATABLES=split(EXTRATABLES,COLS_EXTRATABLES,",")
+		for (i=1;i<=COUNT_EXTRATABLES; i++) {
+			if (COLS_EXTRATABLES[i] ~ /h/) {
+				sub("h","",COLS_EXTRATABLES[i])
+				COLS_EXTRATABLES_W_HEAD[COLS_EXTRATABLES[i]]=1
+			}
+		}
+	}
+} # }}}
+
+function _write_style ()
+# {{{
+# action: prints the CSS-Style
+{
+	print "<style type=\"text/css\">"
+	print "/* <![CDATA[ */"
+	print "  body      { background-color: #FFFFFF; color: #080808; font-family: Arial, Helvetica, Sans-Serif; }"
+	print "  table     { border-collapse: collapse; }"
+	print "  caption   { font-size: 120%; text-align: center; color: " CAPTION "; margin: 8px 0px 4px; }"
+	print "  .smallc   { font-size: 100%; text-align: center; color: " CAPTION "; margin: 4px 0px 4px; }"
+	print "  pre       { background-color: #EEEEEE; color: #262626; font-family: Fixedsys, Courier, Monospace; padding: 10px; }"
+	print "  th        { font-size: 90%; border: 1px solid " SOLID "; font-weight: bolder; margin: 8px 0px 0px; }"
+	print "  td        { font-size: 80%; border: 1px solid " SOLID "; }"
+	print "  tr.head   { background-color: " HIGH "; }"
+	print "  tr.odd    { background-color: " ODD "; }"
+	print "  tr.even   { background-color: " EVEN "; }"
+	print "  tr.high   { background-color: " SOLID "; }"
+	print "  a         { text-decoration: none; }"
+	print "  p         { font-size: 80%; }"
+	print "  .l        { text-align: left; }"
+	print "  .c        { text-align: center; }"
+	print "  .r        { text-align: right; }"
+	print "  .b        { font-weight: bolder; }"
+	print "  .i        { font-style: italic; }"
+	print "  .black    { color: #000000; }"
+	print "  .blue     { color: #0000AA; }"
+	print "  .red      { color: #EE0000; }"
+	print "/* ]]> */"
+	print "</style>"
+} # }}}
+
+function _output_javascript_sorting ()
+# {{{
+# action: prints the javascript code needed for sorting columns in the users browser
+{
+	# Code is grabbed from SelfHTML
+	print ""
+	print "<script type=\"text/javascript\">"
+	print "/* <![CDATA[ */"
+	print "var tables = new Array();"
+	print "var ti = 0;"
+	print ""
+	print "function sort_table(id) {"
+	print "   this.id = id;"
+	print "   this.obj;"
+	print "   this.tbody_obj;"
+	print "   this.sort_cols = 0;"
+	print "   this.sort_rows = 0;"
+	print "   this.tr_ids = new Array();"
+	print "   this.td_ids = new Array();"
+	print "   this.active_sort_order = \"dsc\";"
+	print "}"
+	print ""
+	print "function init_tabsort(table_id) {"
+	print "   if(!document.getElementById) return;"
+	print "   tables[ti] = new sort_table(table_id);"
+	print "   var t = ti;"
+	print "   ti += 1;"
+	print "   tables[t].obj = document.getElementById(table_id);"
+	print "   for(var i = 0; i < tables[t].obj.childNodes.length; i++) {"
+	print "      switch(tables[t].obj.childNodes[i].nodeName.toLowerCase()) {"
+	print "         case \"colgroup\":"
+	print "            for(j = 0; j < tables[t].obj.childNodes[i].childNodes.length; j++)"
+	print "               if(tables[t].obj.childNodes[i].childNodes[j].nodeName.toLowerCase() == \"col\")"
+	print "                  tables[t].sort_cols += 1;"
+	print "            break;"
+	print "         case \"tbody\":"
+	print "            tables[t].tbody_obj = tables[t].obj.childNodes[i];"
+	print "            break;"
+	print "         default: break;"
+	print "      }"
+	print "   }"
+	print "   var tri = 0;"
+	print "   var tdi = 0;"
+	print "   for(i = 0; i < tables[t].tbody_obj.childNodes.length; i++) {"
+	print "      if(tables[t].tbody_obj.childNodes[i].nodeName.toLowerCase() == \"tr\") {"
+	print "         tables[t].tbody_obj.childNodes[i].id = table_id + \"_tr_\" + tri;"
+	print "         tables[t].tr_ids.push(table_id + \"_tr_\" + tri);"
+	print "         tables[t].sort_rows += 1;"
+	print "         tdi = 0;"
+	print "         for(j = 0; j < tables[t].tbody_obj.childNodes[i].childNodes.length; j++) {"
+	print "            if(tables[t].tbody_obj.childNodes[i].childNodes[j].nodeName.toLowerCase() == \"td\") {"
+	print "               tables[t].tbody_obj.childNodes[i].childNodes[j].id = table_id + \"_tr_\" + tri + \"_td_\" + tdi;"
+	print "               tables[t].td_ids.push(table_id + \"_tr_\" + tri + \"_td_\" + tdi);"
+	print "               tdi += 1;"
+	print "            }"
+	print "         }"
+	print "         tri += 1;"
+	print "      }"
+	print "   }"
+	print "}"
+	print ""
+	print "function get_sort_table_obj_by_id(id) {"
+	print "   for(var i = 0; i < tables.length; i++)"
+	print "      if(tables[i].id == id) return(tables[i]);"
+	print "}"
+	print ""
+	print "function numsort(a,b) {"
+	print "   return parseFloat(a) - parseFloat(b);"
+	print "}"
+	print ""
+	print "function tabsort(table_id, sort_type, col_n) {"
+	print "   if(!document.getElementById) return;"
+	print "   var delimiter = \"|||||\";"
+	print "   var to = get_sort_table_obj_by_id(table_id);"
+	print "   var sort_array = new Array();"
+	print "   for(var i = 0; i < to.sort_rows; i++) {"
+	print "      tr_array = new Array();"
+	print "      tr_id = table_id + \"_tr_\" + i;"
+	print "      td_id = tr_id + \"_td_\" + col_n;"
+	print "      tr_array.push(document.getElementById(td_id).innerHTML);"
+	print "      for(var j = 0; j < to.sort_cols; j++) {"
+	print "          if(j == col_n) continue;"
+	print "          else {"
+	print "             tr_id = table_id + \"_tr_\" + i;"
+	print "             td_id = tr_id + \"_td_\" + j;"
+	print "             tr_array.push(document.getElementById(td_id).innerHTML);"
+	print "          }"
+	print "      }"
+	print "      tr_str = tr_array.join(delimiter);"
+	print "      sort_array.push(tr_str);"
+	print "   }"
+	print "   if(sort_type == \"t\")"
+	print "      sort_array.sort();"
+	print "   else if(sort_type == \"n\")"
+	print "      sort_array.sort(numsort);"
+	print "   if(to.active_sort_order == \"dsc\") {"
+	print "      sort_array.reverse();"
+	print "      to.active_sort_order = \"asc\";"
+	print "   }"
+	print "   else"
+	print "      to.active_sort_order = \"dsc\";"
+	print "   for(i = 0; i < sort_array.length; i++) {"
+	print "      tr_array = sort_array[i].split(delimiter);"
+	print "      first = tr_array.shift();"
+	print "            tr_array.splice(col_n, 0, first);"
+	print "      for(j = 0; j < to.sort_cols; j++) {"
+	print "         tr_id = table_id + \"_tr_\" + i;"
+	print "         td_id = tr_id + \"_td_\" + j;"
+	print "         document.getElementById(td_id).innerHTML = tr_array[j];"
+	print "      }"
+	print "   }"
+	print "   var img_html;"
+	print "   if(to.active_sort_order == \"asc\") img_html = \" &darr;\""
+	print "   else img_html = \" &uarr;\""
+	print "   for(i = 0; i < to.sort_cols; i++) {"
+	print "      if(i == col_n)"
+	print "         document.getElementById(table_id + \"_sorted_\" + i).innerHTML = img_html + \" \";"
+	print "      else"
+	print "         document.getElementById(table_id + \"_sorted_\" + i).innerHTML = \" \";"
+	print "   }"
+	print "}"
+	print "/* ]]> */"
+	print "</script>"
+} # }}}
+
+function _output_emptyline ()
+# {{{
+# action: prints a line with a colspan over all tablerows but no data in it
+{
+	print "<tr style=\"height: 0.5em\"><td colspan=\"" MAXNF+NL "\"></td></tr>"
+} #}}}
+	
+function _output_line (     i, oddeven, myvalue, tag)
+# {{{
+# action: prints a HTML-line from $0
+{
+	if (NF > MAXNF) MAXNF=NF
+	COUNT_ODDEVEN++
+	if (COUNT_ODDEVEN % 2 == 0) oddeven = "even"
+	else                        oddeven = "odd"
+	printf "<tr class=\"" oddeven "\""
+	if (JS_HIGHLIGHTING) printf " onmouseover=\"this.className='high';\" onmouseout=\"this.className='" oddeven "';\""
+	print ">"
+
+	if (NL) print "  <td class=\"r\">" ++COUNT_LINES "</td>"
+
+	for (i=1; i<=NF; i++) {
+		myvalue=$i
+		printf "  <td"
+		if (FONT[i] || ALIGN[i]) printf " class=\""
+		if (FONT[i]) printf FONT[i]
+		if (FONT[i] && ALIGN[i]) printf " "
+		if (ALIGN[i]) printf ALIGN[i]
+		if (FONT[i] || ALIGN[i]) printf "\""
+		if (INFOTITLES && EXIST_HEADER) printf " title=\"" HEAD[i] "\""
+
+		printf ">"
+		# if myvalue contains "%" a printf-statement fails :-(
+		# so I chose 'print' 
+		if ( myvalue && AHREF[i] ) {
+			tag = AHREF[i]
+			sub("%",myvalue,tag)
+			print "<a href=\"" tag "\" target=\"_blank\">" myvalue "</a></td>"
+		}
+		else if (myvalue && ANAME[i]) {
+			tag = ANAME[i]
+			sub("%",myvalue,tag)
+			print "<a id=\"" tag "\">" myvalue "</a></td>"
+		}
+		else if (myvalue && GRAPHIC[i]) {
+			print "<img src=\"" myvalue "\" alt=\"" myvalue "\" /></td>"
+		}
+		else
+			print myvalue "</td>"
+		# Summarize numbers for Totals at the end (if requested)
+		if (SORTTAG[i] == "n") SUM[i]+=myvalue
+		# remember unique elements if required
+		if (UNIQUECOLS || EXTRATABLES) UVALS[i,myvalue]++
+	}
+	print "</tr>"
+} # }}}
+
+function _output_headerline (colspan,     i, myvalue, tag)
+# {{{
+# action: prints a headerline with all data columns, correctly formatted
+# input : "colspan": if "1": write all data in one colspan across the whole table
+{
+	if (NF > MAXNF) MAXNF = NF		# Maximun No of fields
+	if (EMPTYLINE) _output_emptyline()	# an empty line before
+
+	print "<tr class=\"head\">"
+	if (colspan)	# a header after 2 empty lines: a colspan across the table
+		print "<td colspan=\"" MAXNF+NL "\" class=\"b l\">" $0 "</td>"
+	else {		# a "normal" headerline
+		if (NL) print"  <td></td>"
+		for (i=1; i<=NF; i++) {
+			myvalue=$i
+			printf "  <td class=\"black"
+			if (FONT[i] || ALIGN[i]) printf " "
+			if (FONT[i]) printf FONT[i]
+			if (FONT[i] && ALIGN[i]) printf " "
+			if (ALIGN[i]) printf ALIGN[i]
+			if (FONT[i] || ALIGN[i]) printf "\""
+			printf ">"
+			if (myvalue && ANAME[i]) {
+				tag = ANAME[i]
+				sub("%",myvalue,tag)
+				print "<a id=\"" tag "\">" myvalue "</a></td>"
+			}
+			else
+				print  myvalue "</td>"
+			# remember unique elements if required with flag "h" in extratables
+			if (UNIQUECOLS || EXTRATABLES)
+				if (COLS_EXTRATABLES_W_HEAD[i]) UVALS[i,myvalue]++
+		}
+	}
+	print "</tr>"
+	COUNT_ODDEVEN = 0				# next line will be uncolored
+} # }}}
+
+function _parse_header (htext,     i)
+# {{{
+# action: gets the headerinfo for each col, writes in global array HEAD[] and sets MAXNF
+# params: String with Header, FS-separated
+{
+	EXIST_HEADER = 1
+	MAXNF = split (htext,HEAD,FS)
+	# for printf of HEADs convert the %-symbol
+	for (i=1; i<=MAXNF; i++)
+		if (HEAD[i] ~ /%/) gsub("%","%%",HEAD[i])
+} #}}}
+
+function _parse_format (ftext,     i, j, count_ffields, ffields, thisfield, char)
+# {{{
+# action: gets the formatinfo for each col, writes in global arrays FONT, ALIGN and sets tags
+# params: String with FORMAT, FS-separated
+{
+	EXIST_FORMAT=1
+	count_ffields=split(ftext,ffields,FS)
+	for (i=1;i<=count_ffields; i++) {
+		thisfield = ffields[i]
+		for (j=1; j<=length(thisfield); j++) {
+			char = substr(thisfield,j,1)
+			if      (char == "l" || char == "c" || char == "r") ALIGN[i] = char
+			else if (char == "b" || char == "i") FONT[i] = char
+			else if (char == "n" || char == "t") SORTTAG[i] = char
+			else if (char == "g") GRAPHIC[i] = char
+			else if (char == "a") {
+				if      (substr(thisfield,j,5) == "ahref") AHREF[i] = substr(thisfield,j+6)
+				else if (substr(thisfield,j,5) == "aname") ANAME[i] = substr(thisfield,j+6)
+				else _write_warning("Wrong/unknown anchor type '" substr(thisfield,j,5) "' - ignoring it")
+				break
+			}
+			else _write_warning("Unknown Format Type '" char "' for column " i " - ignoring it")
+		}
+		if (SORTING && !SORTTAG[i]) {
+			_write_warning("No sorttype specified for column " i " - assuming ASCII-Text")
+			SORTTAG[i] = "t"
+		}
+		if (AHREF[i]) {				# http://www.w3.org/TR/html4/appendix/notes.html#h-B.2.2
+			###if (AHREF[i] ~ /&/ && (AHREF[i] !~ /&amp;/) # argh, das reicht nicht, wenn mehrfach vorhanden....
+			gsub("&","&amp;",AHREF[i])
+		}
+	}
+} #}}}
+
+function _read_headlines ()
+# {{{
+# action: read and parse information about title, headers, formatting
+#         and special text elements given as part of the input data
+# maybe : this feature could leave in a further release...
+{
+	DATAFOUND = getline	# return value; 0 if there is no input
+	while ( DATAFOUND && ($1 == "TITLER" || $1 == "FORMAT" || $1 == "HEADER" || $1 == "BEFORE" || $1 == "BEHIND" ) ) {
+		if ($1 == "TITLER") {
+			if (TITLE) _write_warning("TITLER in input - but already defined as cmd-line paramater")
+			TITLE = $0
+			sub("^TITLER" FS,"",TITLE)
+		}
+		else if ($1 == "FORMAT") {
+			if (EXIST_FORMAT) _write_warning("FORMAT in input - but already defined as cmd-line paramater")
+			RAWDATAFORMAT = $0
+			sub("^FORMAT" FS,"",RAWDATAFORMAT)
+			_parse_format(RAWDATAFORMAT)
+
+		}
+		else if ($1 == "HEADER") {
+			if (EXIST_HEADER) _write_warning("HEADER in input - but already defined as cmd-line paramater")
+			RAWDATAHEADER = $0	# ist eventually used later on
+			sub("^HEADER" FS,"",RAWDATAHEADER)
+			_parse_header(RAWDATAHEADER)
+		}
+		else if ($1 == "BEFORE") {
+			BEFORETEXT[++COUNT_BEFORE] = $0
+			sub("^BEFORE" FS,"",BEFORETEXT[COUNT_BEFORE])
+		}
+		else if ($1 == "BEHIND") {
+			BEHINDTEXT[++COUNT_BEHIND] = $0
+			sub("^BEHIND" FS,"",BEHINDTEXT[COUNT_BEHIND])
+		}
+		DATAFOUND = getline
+	}
+} # }}}
+
+function _handle_headerline(     returnvalue)
+# {{{
+# action: takes care of a headerline and decides wheter or not there is an colspan-feature enabled
+{
+	returnvalue = getline
+	if (returnvalue && $0 != "")	# normal headerline
+		_output_headerline()
+	else {
+		returnvalue = getline
+		if (returnvalue && $0 != "")
+			_output_headerline(1)	# with colspan
+		else _write_warning("Empty Line indicating a headerline at end of input - but no data anymore")
+		# TODO: Is this the right explanation?
+	}
+} # }}}
+
+function _print_htmlheader (     i, extratableid)
+# {{{
+# action: prints the (X)HTML header needed for the HTML-Document
+{
+	print "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\""
+	print "  \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">"
+
+	print "<html xmlns=\"http://www.w3.org/1999/xhtml\" xml:lang=\"de\" lang=\"de\">"
+	print "<head>"
+	print "<title>" TITLE "</title>"
+	print "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=iso-8859-1\" />"
+	print "<meta name=\"author\"    content=\"Created by csv2html, W. Lauffher\" />"
+	print "<meta name=\"generated\" content=\"AWK\" />"
+	print "<meta name=\"expires\"   content=\"36000\" />"
+	_write_style()			# the css-definitions
+	if (SORTING) _output_javascript_sorting()
+	# some javascript, also when not used:
+	print ""
+	print "<script type=\"text/javascript\">"
+	print "/* <![CDATA[ */"
+	print "function toggleelement(e) {"
+	print "   element = document.getElementById(e).style;"
+	print "   element.display == \"none\" ? element.display = \"block\" : element.display=\"none\";"
+	print "}"
+	print "/* ]]> */"
+	print "</script>"
+	print "</head>"
+	# the head is now ready. start also the body:
+	print ""
+	if (SORTING) {
+		printf "<body onload=\"init_tabsort('" TABLEID "');"
+		if (EXTRATABLES) {
+			for (i=1;i<=COUNT_EXTRATABLES;i++)
+			{
+				extratableid=TABLEID COLS_EXTRATABLES[i]
+				printf "init_tabsort('" extratableid "');"
+			}
+		}
+		print  "\">"
+		###form###print  "<form action=\"javascript:void(0)\">"
+	}
+	else print "<body>"
+} # }}}
+
+function _print_tablehead (     i)
+# {{{
+# action: prints the header of the table
+{
+	if (SORTING) {
+		print "<colgroup>"
+		for (i=1; i<=MAXNF+NL; i++) print "  <col />"
+		print "</colgroup>"
+	}
+	print "<thead>"
+	print "<tr class=\"head\">"
+	if (NL) {
+		printf "  <th class=\"c\""
+		if (SORTING) printf " title=\"Sort numbers\" style=\"cursor:pointer;\" onclick=\"tabsort('" TABLEID "','n',0)\""
+		printf ">#"
+		if (SORTING) printf " <span id=\"" TABLEID "_sorted_0\"></span>"
+		print "</th>"
+	}
+	for (i=1; i<=MAXNF; i++) {
+		printf "  <th"
+		if (ALIGN[i]) printf " class=\"" ALIGN[i] "\""
+		if (SORTING) {
+			printf " title=\"Sort this column\" style=\"cursor:pointer;\""
+			printf " onclick=\"tabsort('" TABLEID "','" SORTTAG[i] "'," i-1+NL ")\""
+		}
+		printf ">" HEAD[i]
+		if (SORTING) printf " <span id=\"" TABLEID "_sorted_" i-1+NL "\"></span>"
+		print "</th>"
+	}
+	print "</tr>"
+	print "</thead>"
+} # }}}
+
+function _print_tablefoot (     i, indexer, ui, ucols, should_print_totals, should_print_uniquecols)
+# {{{
+# action: prints the Footer of the table
+{
+	print "<tfoot>"
+	if (TOTALS) {
+		for (i=1;i<=COUNT_TOTALS;i++)
+			should_print_totals[COLS_TOTALS[i]]=1
+		_output_emptyline()
+		print "<tr class=\"head\">"
+		if (NL) print "  <td title=\"Total of values in columns\">SUM</td>"
+		for (i=1; i<=MAXNF; i++) {
+			if (should_print_totals[i] && SORTTAG[i]=="n") {
+				printf "  <td title=\"Total of column "
+				if (HEAD[i]) printf HEAD[i]; else printf i
+				printf "\" class=\"black " FONT[i] " " ALIGN[i] "\">" SUM[i] "</td>"
+			}
+			else {
+				if (should_print_totals[i])
+					_write_warning("Total for column " i " requested, but not marked as 'n' - ignoring")
+				print "  <td></td>"
+			}
+		}
+		print "</tr>"
+	}
+	if (UNIQUECOLS) {
+		for (i=1; i<=COUNT_UNIQUECOLS; i++)
+			should_print_uniquecols[COLS_UNIQUECOLS[i]]=1
+		for (indexer in UVALS) {
+			# grooaar - multidimensional array ...
+			split(indexer,ui,SUBSEP)
+			ucols[ui[1]]++		# remember: ui[1] == index of column
+		}
+		_output_emptyline()
+		print "<tr class=\"head\">"
+		if (NL) print "  <td title=\"Amount of different content in columns\">Values</td>"
+		for (i=1; i<=MAXNF; i++)
+			if (should_print_uniquecols[i]) {
+				print "  <td title=\"Different values in column "
+				if (HEAD[i]) printf HEAD[i]; else printf i
+				printf "\" class=\"black " FONT[i] " " ALIGN[i] "\">" ucols[i] "</td>"
+				# printing of ALIGN & FONT not perfect at the moment...
+			}
+			else
+				print "  <td></td>"
+		print "</tr>"
+	}
+	if (COPYRIGHT) {
+		print "<tr class=\"head\">"
+		print "  <td colspan=\"" MAXNF+NL "\">&copy; " _today() " " COPYTXT "</td>"
+		print "</tr>"
+	}
+	print "</tfoot>"
+} # }}}
+
+function _print_extratables(     i, j, indexer, ui, col, count_values, values, row, extratableid, thiscol, myvalue, lcounter)
+# {{{
+# action: prints extra tables at the end with the frequency of different values in specified COLS
+{
+	print "<br />"
+	# Read all collected values
+	for (indexer in UVALS) {
+		# grooaar - multidimensional array ... see above
+		split(indexer,ui,SUBSEP)
+		col=ui[1]
+		count_values[col]++				# number of values in column
+		values[col, count_values[col]]=ui[2]		# collected values
+	}
+
+	for (i=1;i<=COUNT_EXTRATABLES;i++)
+	{
+		thiscol=COLS_EXTRATABLES[i]
+		extratableid=TABLEID thiscol
+
+		print ""
+		###form###if (SORTING) print "<form style=\"display:inline;\" action=\"javascript:void(0)\">"
+		print "<table style=\"display:inline; vertical-align: top;\" id=\"" extratableid "\">"
+		printf "<caption class=\"smallc\">"
+		if (HEAD[thiscol]) printf HEAD[thiscol]
+		else printf "Column " thiscol
+		print "</caption>"
+
+		if (SORTING) {
+			print "<colgroup>"
+			for (j=1; j<=2+NL; j++) print "  <col />"
+			print "</colgroup>"
+		}
+
+		# {{{ Generate Headerline, if applicable with sorting & numbering
+		print "<thead>"
+		print "<tr class=\"head\">"
+		if (NL) {
+			print "  <th class=\"c\""
+			if (SORTING) {
+				printf " title=\"Sort this column\" style=\"cursor:pointer;\""
+				printf " onclick=\"tabsort('" extratableid "','n',0)\""
+			}
+			printf ">#"
+			if (SORTING) printf  " <span id=\"" extratableid "_sorted_0\"></span>"
+			print "</th>"
+		}
+
+		printf "  <th"
+		if (ALIGN[thiscol]) printf " class=\"" ALIGN[thiscol] "\""
+		if (SORTING) {
+			printf " title=\"Sort this column\" style=\"cursor:pointer;\""
+			printf " onclick=\"tabsort('" extratableid "','" SORTTAG[thiscol] "'," 1-1+NL ")\""
+		}
+		printf ">Value"
+		if (SORTING) printf " <span id=\"" extratableid "_sorted_" 1-1+NL "\"></span>"
+		print "</th>"
+
+		printf "  <th class=\"r\""
+		if (SORTING) {
+			printf " title=\"Sort this column\" style=\"cursor:pointer;\""
+			printf " onclick=\"tabsort('" extratableid "','n'," 2-1+NL ")\""
+		}
+		printf ">Count"
+		if (SORTING) printf " <span id=\"" extratableid "_sorted_" 2-1+NL "\"></span>"
+		print "</th>"
+		print "</tr>"
+		print "</thead>"
+		# }}}
+
+		# {{{ Generate Body of the table
+		lcounter=0
+		print "<tbody>"
+		for (row=1;row<=count_values[thiscol];row++) {
+			print "<tr class=\"odd\">"
+
+			if (NL) print "  <td class=\"n r\">" ++lcounter "</td>"
+			myvalue=values[thiscol, row]
+			print "  <td>" myvalue "</td>"
+			print "  <td class=\"r\">" UVALS[thiscol, myvalue] "</td>"
+			print "</tr>"
+		}
+		print "</tbody>"
+		# }}}
+
+		# no footer
+		print "</table>"
+		###form###if (SORTING) print  "</form>"
+    }
+} # }}}
+
+function _print_rawdata(     i)
+# {{{
+# action: prints an icon to toggle a DIV-element with the original-rawdata incl. the HEADER in front
+{
+	print "<br />"
+	print "<a href=\"javascript:toggleelement('rawdata')\">"
+	print "  <img border=\"0\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAOCAIAAACU32q7AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAgY0hSTQAAeiYAAICEAAD6AAAAgOgAAHUwAADqYAAAOpgAABdwnLpRPAAAAD1JREFUKFNjPHDgAANBAFT0Hy9oaGhggCgCkrjAACtC8yXElVjcBFcH9wd2hwPVIft0gH2HNdChbgJS+AEAfXVLUg3H0PMAAAAASUVORK5CYII=\" />"
+	print "  Show Rawdata"
+	print "</a>"
+	print "<div id=\"rawdata\" style=\"display:none;\">"
+	print "<pre>"
+	print RAWDATAHEADER
+	# Open Issue: what about RAWDATAFORMAT, TITLE and Behind/Before-Strings?
+	for (i=1;i<=COUNT_RAWDATA;i++)
+		print RAWDATA[i]
+	print "</pre>"
+	print "</div>"
+} # }}}
+
+
+#####################################################################################
+# MAIN
+# {{{
+BEGIN {
+	_get_params()				# commandline args
+	_read_headlines()			# read special lines at the beginning of data
+	if (HTMLHEADER) _print_htmlheader()	# includes the start of the body
+
+	for (bfc=1; bfc <= COUNT_BEFORE; bfc++)	# Text before the table
+		print BEFORETEXT[bfc]
+
+	print "<table id=\"" TABLEID "\">"
+
+	if (TITLE) print "<caption>" TITLE "</caption>"
+
+	if (EXIST_HEADER) _print_tablehead()
+	print "<tbody>"
+
+	# output the first data row that was read in _read_headlines
+	# perhaps there are empty lines indicating a headerline
+	if (DATAFOUND) {				# possible there is no data input ..
+		RAWDATA[++COUNT_RAWDATA] = $0
+		if ($0 != "") _output_line()
+		else          _handle_headerline()
+	}
+	else _write_warning("no input data rows")
+} # }}}
+
+#####################################################################################
+# {{{
+{
+	RAWDATA[++COUNT_RAWDATA] = $0
+	if ($0 != "") _output_line()			
+	else          _handle_headerline()
+} # }}}
+
+#####################################################################################
+# {{{
+END {
+	if (! GOTO_END ) {
+		print "</tbody>"
+		_print_tablefoot()
+		print "</table>"
+		###form###if (HTMLHEADER && SORTING) print "</form>"
+
+		if (COUNT_BEHIND) print "<p>"	# Text after the table
+		for (bhc=1; bhc <= COUNT_BEHIND; bhc++)
+			print BEHINDTEXT[bhc]
+
+		if (SHOW_RAWDATA) _print_rawdata()
+
+		if (EXTRATABLES) _print_extratables()
+
+		if (HTMLHEADER) {
+			print "</body>"
+			print "</html>"
+		}
+	}
+	# here is the end :-)
+} # }}}
+
+# for programmers: UPPERCASE vars are global
+# vim:syntax=awk:foldmethod=marker
+
