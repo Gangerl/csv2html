@@ -5,8 +5,11 @@
 #
 # (c) Wolfgang Lauffher
 #
-# Version 1.7.3
+# Version 1.7.4
 #
+# changes from 1.7.3 -> 1.7.4:
+#   error in headerlines: assumes ";" not the delimiter...
+#   2023-07 colspan counting missing if format string was given
 # changes from 1.7.2 -> 1.7.3:
 #   graphic "g": img-tag now with alt-tag und ending /
 # changes from 1.7.1 -> 1.7.2:
@@ -33,14 +36,14 @@ function _version ()
 # action: gives the version of this program
 # return: String (with version)
 {
-	return "csv2html 1.7.2 2010-05-14"
+	return "csv2html 1.7.4 2023-07-11"
 } #}}}
 
 function _write_copyright ()
 # {{{
 # action: prints the copyright of this program to stdout
 {
-	print "Copyright (C) 2007-2009 Wolfgang Lauffher"
+	print "Copyright (C) 2007-2023 Wolfgang Lauffher"
 	print ""
 	print "This program is free software; you can redistribute it and/or modify"
 	print "it under the terms of the GNU General Public License as published by"
@@ -472,6 +475,7 @@ function _parse_format (ftext,     i, j, count_ffields, ffields, thisfield, char
 {
 	EXIST_FORMAT=1
 	count_ffields=split(ftext,ffields,FS)
+	MAXNF=count_ffields
 	for (i=1;i<=count_ffields; i++) {
 		thisfield = ffields[i]
 		for (j=1; j<=length(thisfield); j++) {
